@@ -1,0 +1,274 @@
+{-# START_FILE .travis.yml #-}
+language: haskell
+ghc:
+  - 8.0.2
+sudo: false
+env:
+  - GHCVER=8.0.2
+
+addons:
+ apt:
+   sources:
+   - hvr-ghc
+   packages:
+   - happy
+   - hlint
+
+cache:
+  directories:
+  - $HOME/.stack
+  - $HOME/.ghc
+  - $HOME/.local/bin
+
+# Download and unpack the stack executable
+before_install:
+  - export PATH=/opt/ghc/$GHCVER/bin:$PATH
+  - export PATH=$HOME/.local/bin:$PATH
+  - if [ -e $HOME/.local/bin/stack ]; 
+      then echo "stack already installed" && which stack && ls $HOME/.local/bin;
+      else mkdir -p $HOME/.local/bin && travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C $HOME/.local/bin '*/stack' && echo "stack installed in" && which stack;
+    fi
+
+install:
+  - stack update
+  - stack setup
+  - if [ -e $HOME/.local/bin/codecov-haskell ]; 
+      then echo "codecov-haskell already installed" && which codecov-haskell && ls $HOME/.local/bin;
+      else mkdir -p $HOME/.local/bin 
+        && git clone https://github.com/jonathankochems/codecov-haskell.git 
+        && pushd codecov-haskell
+        && stack setup 
+        && stack install && popd 
+        && echo "codecov-haskell installed in" 
+        && which codecov-haskell;
+    fi
+  - stack install --dependencies-only --test --bench
+
+script:
+  - hlint . --ignore="Parse error"
+  - export ROOT_DIR=$(pwd)
+  - stack --no-terminal --skip-ghc-check build --coverage
+  - stack --no-terminal --skip-ghc-check test --coverage
+  - codecov-haskell hqif-test --exclude-dir=test --display-report --print-response --dont-send --tix-dir=$(stack path --local-hpc-root)/hqif/ --mix-dir=$(stack path --dist-dir)/hpc/ > .tmp-report
+  - bash <(curl -s https://codecov.io/bash) -f .tmp-report
+  - stack --no-terminal --skip-ghc-check bench
+  - stack --no-terminal --skip-ghc-check sdist
+  - export DIST_DIR=$(stack path --dist-dir)
+  - export SDIST_TAR=$(find $DIST_DIR -name "*.tar.gz" | tail -1)
+  - export SDIST_FOLDER=$(basename $SDIST_TAR .tar.gz)
+  - tar xzvf $SDIST_TAR
+  - pushd $SDIST_FOLDER && stack init --force && stack build --test --haddock --no-haddock-deps && popd
+
+after_script:
+
+notifications:
+  webhooks:
+  urls:
+  on_success: change
+  on_failure: always
+  on_start: false
+  
+{-# START_FILE {{name}}.cabal #-}
+name:                {{name}}
+-- Package version according to Haskell package versioning policy (PVP) 
+-- http://www.haskell.org/haskellwiki/Package_versioning_policy
+-- PVP summary:      +-+------- breaking API changes
+--                   | | +----- non-breaking API additions
+--                   | | | +--- code changes with no API change
+version:             0.1.0.0
+-- synopsis:         TODO: write synopsis
+-- description:      TODO: write description
+homepage:            https://github.com/{{github-username}}{{^github-username}}githubuser{{/github-username}}/{{name}}#readme
+license:             BSD3
+license-file:        LICENSE
+author:              {{author-name}}{{^author-name}}Author name here{{/author-name}}
+maintainer:          {{author-email}}{{^author-email}}example@example.com{{/author-email}}
+copyright:           {{copyright}}{{^copyright}}{{year}}{{^year}}2017{{/year}} {{author-name}}{{^author-name}}Author name here{{/author-name}}{{/copyright}}
+--category:          TODO: pick category
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Lib
+  build-depends:       base >= 4.7 && < 5
+  default-language:    Haskell2010
+
+executable {{name}}-exe
+  hs-source-dirs:      app
+  main-is:             Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+                     , {{name}}
+  default-language:    Haskell2010
+
+Benchmark {{name}}-bench
+    type:       exitcode-stdio-1.0
+    hs-source-dirs: bench/
+    main-is:       Main.hs
+    build-depends: base
+                 , {{name}}
+                 , criterion
+
+test-suite {{name}}-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+  other-modules:       Spec{{name}}
+  build-depends:       base
+                     , hspec >= 1.3
+                     , QuickCheck >= 2.6
+                     , {{name}}
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+-- Source repository information for development branch
+source-repository head
+  type:     git
+  location: https://github.com/{{github-username}}{{^github-username}}githubuser{{/github-username}}/{{name}}
+  branch:   develop
+
+-- Source repository information for this version of the package
+source-repository this
+  type:     git
+  location: https://github.com/{{github-username}}{{^github-username}}githubuser{{/github-username}}/{{name}}
+  branch:   master
+  tag:      tip
+
+{-# START_FILE Setup.hs #-}
+import Distribution.Simple
+main = defaultMain
+
+{-# START_FILE bench/Main.hs #-}
+module Main where
+
+import qualified Bench
+
+main :: IO ()
+main = Bench.main
+
+{-# START_FILE bench/Bench.hs #-}
+module Bench where
+
+-- Criterion
+import Criterion.Main
+    
+main = defaultMain [
+              bench "empty_bench" $ nfIO (return ())
+         ]
+{-# START_FILE test/Spec.hs #-}
+{-# OPTIONS_GHC -F -pgmF hspec-discover #-}
+
+
+{-# START_FILE test/Spec{{name}}.hs #-}
+module Spec{{name}} (main, spec) where
+
+import Test.Hspec
+
+main :: IO ()
+main = hspec spec
+
+spec :: Spec
+spec = do
+  describe "someFunction" $ 
+    it "should work fine" $ 
+      True `shouldBe` False
+{-# START_FILE src/Lib.hs #-}
+-- |
+-- Module      :  Lib
+-- Copyright   :  {{author-name}}{{^author-name}}Author name here{{/author-name}} {{year}}{{^year}}2017{{/year}}
+-- License     :  BSD3
+--
+-- Maintainer  :  {{author-email}}{{^author-email}}example@example.com{{/author-email}}
+-- Stability   :  experimental
+-- Portability :  unknown
+--
+-- Description
+--   TODO: write description
+module Lib
+    ( someFunc
+    ) where
+
+someFunc :: IO ()
+someFunc = putStrLn "someFunc"
+
+{-# START_FILE app/Main.hs #-}
+-- |
+-- Module      :  Main
+-- Copyright   :  {{author-name}}{{^author-name}}Author name here{{/author-name}} {{year}}{{^year}}2017{{/year}}
+-- License     :  BSD3
+--
+-- Maintainer  :  {{author-email}}{{^author-email}}example@example.com{{/author-email}}
+-- Stability   :  experimental
+-- Portability :  unknown
+--
+-- Description
+--   TODO: write description
+module Main where
+
+import Lib
+
+main :: IO ()
+main = someFunc
+
+{-# START_FILE README.md #-}
+# {{name}}
+[![Build Status](https://travis-ci.org/{{github-username}}{{^github-username}}githubuser{{/github-username}}/{{name}}.svg)](https://travis-ci.org/{{github-username}}{{^github-username}}githubuser{{/github-username}}/{{name}}) [![codecov.io](http://codecov.io/github/{{github-username}}{{^github-username}}githubuser{{/github-username}}/{{name}}/coverage.svg?branch=develop)](http://codecov.io/github/{{github-username}}{{^github-username}}githubuser{{/github-username}}/{{name}}?branch=develop) [![BSD3 License](http://img.shields.io/badge/license-BSD3-brightgreen.svg)](https://tldrlegal.com/license/bsd-3-clause-license-%28revised%29) [![v0.1.0.0 on Hackage](http://img.shields.io/badge/hackage-0.1.0.0-brightgreen.svg)](http://hackage.haskell.org/package/{{name}}-0.1.0.0)
+
+TODO: Write description here
+
+## Installation
+
+TODO: Write installation instructions here
+
+## Usage
+
+TODO: Write usage instructions here
+
+## How to run tests
+
+```
+stack test
+```
+
+## Contributing
+
+TODO: Write contribution instructions here
+{-# START_FILE ChangeLog.md #-}
+# Revision history for {{name}}
+
+## 0.0.0  -- {{year}}{{^year}}YYYY{{/year}}-{{month}}{{^month}}mm{{/month}}-{{day}}{{^day}}dd{{/day}}
+
+* First version. Released on an unsuspecting world.
+{-# START_FILE LICENSE #-}
+Copyright {{author-name}}{{^author-name}}Author name here{{/author-name}} (c) {{year}}{{^year}}2017{{/year}}
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+
+    * Redistributions in binary form must reproduce the above
+      copyright notice, this list of conditions and the following
+      disclaimer in the documentation and/or other materials provided
+      with the distribution.
+
+    * Neither the name of {{author-name}}{{^author-name}}Author name here{{/author-name}} nor the names of other
+      contributors may be used to endorse or promote products derived
+      from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
