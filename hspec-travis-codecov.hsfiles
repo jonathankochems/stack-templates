@@ -107,6 +107,7 @@ Benchmark {{name}}-bench
     type:       exitcode-stdio-1.0
     hs-source-dirs: bench/
     main-is:       Main.hs
+    other-modules: Bench
     build-depends: base
                  , {{name}}
                  , criterion
